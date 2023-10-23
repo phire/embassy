@@ -352,6 +352,33 @@ intrinsics! {
     unsafe extern "aapcs" fn __aeabi_memcpy4(dest: *mut u8, src: *const u8, n: usize) -> () {
         memcpy44(dest as *mut u32, src as *const u32, n as u32);
     }
+
+    unsafe extern "aapcs" fn __aeabi_memmove(dest: *mut u8, src: *const u8, n: usize) -> () {
+        if (dest as *const _) > src && (dest as *const _) < src.add(n) {
+            // Overlapping move: do an unoptimized backwards copy
+            for i in (0..n).rev() {
+                *dest.add(i) = *src.add(i);
+            }
+        } else {
+            // Otherwise, we can used the fully optimized memcpy
+            __aeabi_memcpy(dest, src, n);
+        }
+    }
+
+    #[alias = __aeabi_memmove8]
+    unsafe extern "aapcs" fn __aeabi_memmove4(dest: *mut u8, src: *const u8, n: usize) -> () {
+        if (dest as *const _) > src && (dest as *const _) < src.add(n) {
+            // Overlapping move: do an unoptimized backwards copy
+            let mut offset = n;
+            while offset != 0 {
+                offset -= 4;
+                *(dest.add(offset) as *mut u32) = *(src.add(offset) as *const u32);
+            }
+        } else {
+            // Otherwise, we can used the fully optimized memcpy
+            __aeabi_memcpy4(dest, src, n);
+        }
+    }
 }
 
 unsafe fn convert_str(s: *const u8) -> &'static str {
