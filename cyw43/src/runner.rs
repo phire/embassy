@@ -344,6 +344,7 @@ where
         }
     }
 
+    #[inline(never)]
     fn rx(&mut self, packet: &mut [u8]) {
         let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else {
             return;

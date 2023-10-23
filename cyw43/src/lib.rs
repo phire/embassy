@@ -110,6 +110,7 @@ pub struct State {
 }
 
 impl State {
+    #[inline(never)]
     pub fn new() -> Self {
         Self {
             ioctl_state: IoctlState::new(),
@@ -222,6 +223,29 @@ where
     let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
 
     runner.init(firmware).await;
+
+    (
+        device,
+        Control::new(state_ch, &state.events, &state.ioctl_state),
+        runner,
+    )
+}
+
+#[inline(never)]
+pub fn recreate<'a, PWR, SPI>(
+    mac: [u8; 6],
+    state: &'a mut State,
+    pwr: PWR,
+    spi: SPI,
+) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
+where
+    PWR: OutputPin,
+    SPI: SpiBusCyw43,
+{
+    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet(mac));
+    let state_ch = ch_runner.state_runner();
+
+    let runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
 
     (
         device,

@@ -296,6 +296,7 @@ pub struct Events {
 }
 
 impl Events {
+    #[inline(never)]
     pub fn new() -> Self {
         Self {
             queue: EventQueue::new(),

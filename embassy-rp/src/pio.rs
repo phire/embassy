@@ -571,6 +571,7 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
 }
 
 impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
+    #[inline(never)]
     pub fn set_config(&mut self, config: &Config<'d, PIO>) {
         // sm expects 0 for 65536, truncation makes that happen
         assert!(config.clock_divider <= 65536, "clkdiv must be <= 65536");
