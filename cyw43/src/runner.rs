@@ -73,7 +73,7 @@ where
         }
     }
 
-    pub(crate) async fn init(&mut self, firmware: &[u8]) {
+    pub(crate) async fn init(&mut self, firmware: impl embedded_io_async::Read) {
         self.bus.init().await;
 
         // Init ALP (Active Low Power) clock
@@ -96,14 +96,13 @@ where
         let ram_addr = CHIP.atcm_ram_base_address;
 
         debug!("loading fw");
-        self.bus.bp_write(ram_addr, firmware).await;
+        self.bus.bp_write_io(ram_addr, firmware).await;
 
         debug!("loading nvram");
-        // Round up to 4 bytes.
-        let nvram_len = (NVRAM.len() + 3) / 4 * 4;
-        self.bus
-            .bp_write(ram_addr + CHIP.chip_ram_size - 4 - nvram_len as u32, NVRAM)
-            .await;
+        // Round legnth to multiple of 64, leaving at least 4 bytes free.
+        let nvram_len = (NVRAM.len() + 4).next_multiple_of(64);
+        let nvram_addr = CHIP.chip_ram_size - nvram_len as u32;
+        self.bus.bp_write_io(nvram_addr, NVRAM).await;
 
         let nvram_len_words = nvram_len as u32 / 4;
         let nvram_len_magic = (!nvram_len_words << 16) | nvram_len_words;

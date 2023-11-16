@@ -38,33 +38,44 @@ impl<'a> Control<'a> {
         }
     }
 
-    pub async fn init(&mut self, clm: &[u8]) {
+    pub async fn init(&mut self, mut clm: impl embedded_io_async::Read + embedded_io_async::Seek)
+    {
         const CHUNK_SIZE: usize = 1024;
 
         debug!("Downloading CLM...");
 
+        let total_len = clm.seek(embedded_io_async::SeekFrom::End(0)).await.unwrap() as usize;
+        clm.rewind().await.unwrap();
+
         let mut offs = 0;
-        for chunk in clm.chunks(CHUNK_SIZE) {
+        loop {
+            let mut buf = [0; 8 + 12 + CHUNK_SIZE];
+
+            let len = clm.read(&mut buf[20..]).await.unwrap();
+            if len == 0 {
+                break;
+            }
+
             let mut flag = DOWNLOAD_FLAG_HANDLER_VER;
             if offs == 0 {
                 flag |= DOWNLOAD_FLAG_BEGIN;
             }
-            offs += chunk.len();
-            if offs == clm.len() {
+            offs += len;
+            if offs == total_len {
                 flag |= DOWNLOAD_FLAG_END;
             }
 
             let header = DownloadHeader {
                 flag,
                 dload_type: DOWNLOAD_TYPE_CLM,
-                len: chunk.len() as _,
+                len: len as _,
                 crc: 0,
             };
-            let mut buf = [0; 8 + 12 + CHUNK_SIZE];
+
             buf[0..8].copy_from_slice(b"clmload\x00");
             buf[8..20].copy_from_slice(&header.to_bytes());
-            buf[20..][..chunk.len()].copy_from_slice(&chunk);
-            self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..8 + 12 + chunk.len()])
+            let slice = &mut buf[..8 + 12 + len];
+            self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, slice)
                 .await;
         }
 

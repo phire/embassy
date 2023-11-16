@@ -139,33 +139,46 @@ where
         }
     }
 
-    pub async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
-        // It seems the HW force-aligns the addr
-        // to 2 if data.len() >= 2
-        // to 4 if data.len() >= 4
-        // To simplify, enforce 4-align for now.
-        assert!(addr % 4 == 0);
+    /// Writes any data type that implements `embedded_io_async::Read` to the backplane.
+    /// Destination address must be 64byte aligned.
+    pub async fn bp_write_io(&mut self, mut addr: u32, mut data : impl embedded_io_async::Read)
+    {
+        // We simplify things by forcing addresses to always be 64 byte aligned.
+        // This avoids complexity with transfers which might cross a window and the fact that
+        // seems the HW force-aligns the addr to 4 when transer size >= 4 and
+        // to 2 when transfer size >= 2.
+        assert!(addr as usize % BACKPLANE_MAX_TRANSFER_SIZE == 0);
 
         let mut buf = [0u32; BACKPLANE_MAX_TRANSFER_SIZE / 4 + 1];
+        let mut end_of_file = false;
+        let mut first_transfer = true;
 
-        while !data.is_empty() {
-            // Ensure transfer doesn't cross a window boundary.
-            let window_offs = addr & BACKPLANE_ADDRESS_MASK;
-            let window_remaining = BACKPLANE_WINDOW_SIZE - window_offs as usize;
+        while !end_of_file {
+            let len = {
+                let mut buf8 = slice8_mut(&mut buf[1..]);
+                while buf8.len() != 0 && !end_of_file {
+                    let read_len = data.read(buf8).await.unwrap();
+                    end_of_file = read_len == 0;
+                    buf8 = &mut buf8[read_len..];
+                }
+                BACKPLANE_MAX_TRANSFER_SIZE - buf8.len()
+            };
 
-            let len = data.len().min(BACKPLANE_MAX_TRANSFER_SIZE).min(window_remaining);
-            slice8_mut(&mut buf[1..])[..len].copy_from_slice(&data[..len]);
+            if len != 0 {
+                let window_offs = addr & BACKPLANE_ADDRESS_MASK;
+                if window_offs == 0 || first_transfer {
+                    first_transfer = false;
+                    self.backplane_set_window(addr).await;
+                }
 
-            self.backplane_set_window(addr).await;
+                let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
+                buf[0] = cmd;
 
-            let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
-            buf[0] = cmd;
+                self.status = self.spi.cmd_write(&buf[..(len + 3) / 4 + 1]).await;
 
-            self.status = self.spi.cmd_write(&buf[..(len + 3) / 4 + 1]).await;
-
-            // Advance ptr.
-            addr += len as u32;
-            data = &data[len..];
+                // Advance ptr.
+                addr += len as u32;
+            }
         }
     }
 
